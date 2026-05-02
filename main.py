@@ -257,22 +257,39 @@ _brier_history: List[dict] = []
 # ROUTES
 # ═══════════════════════════════════════════════════════
 
-@app.get("/")
-def root():
-    return {"status": "BX3 Backend Ω LIVE", "version": "2.0.0", "schema": "Pydantic V2"}
-
-@app.get("/health")
-def health():
-    return {
-        "status": "ok",
-        "timestamp": datetime.now().isoformat(),
-        "models": MODEL_WEIGHTS,
-        "bets_total": len(_bets_db),
+@app.get("/api-status")
+async def api_status():
+    """Vérifie la connectivité de chaque API externe et retourne son statut."""
+    apis = {
+        "api-football": {
+            "url": "https://v3.football.api-sports.io/status",
+            "headers": {"x-apisports-key": APIFOOTBALL_KEY}
+        },
+        "odds-api": {
+            "url": "https://api.the-odds-api.com/v4/sports/?apiKey=" + ODDS_API_KEY,
+        },
+        "football-data": {
+            "url": "https://api.football-data.org/v4/competitions/",
+            "headers": {"X-Auth-Token": FOOTBALLDATA_KEY}
+        },
+        "sportmonks": {
+            "url": f"https://soccer.sportmonks.com/api/v2.0/continents?api_token={SPORTMONKS_KEY}"
+        }
     }
 
-@app.get("/leagues")
-def get_leagues(auth=Depends(verify_token)):
-    return {"countries": LEAGUES_DATA, "total": sum(len(v) for v in LEAGUES_DATA.values())}
+    statuses = {}
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        for name, cfg in apis.items():
+            try:
+                if "headers" in cfg:
+                    resp = await client.get(cfg["url"], headers=cfg["headers"])
+                else:
+                    resp = await client.get(cfg["url"])
+                statuses[name] = "green" if resp.status_code < 400 else "red"
+            except Exception:
+                statuses[name] = "red"
+
+    return statuses
 
 # ── MATCHES
 @app.get("/matches", response_model=MatchListResponse)
